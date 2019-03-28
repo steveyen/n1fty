@@ -6,7 +6,7 @@ See design approach: https://docs.google.com/document/d/1XVrQ6yp2xV8gZkYuSQwhxv8
 ------------------------------------------
 The FlexIndex.Sargable() implementation currently supports...
 
-- arbitarily nested AND / OR expressions.
+- arbitrarily nested AND / OR expressions.
 
 - equality string expressions (i.e., emp.state = "ca").
 
@@ -68,12 +68,12 @@ The FlexIndex.Sargable() implementation currently supports...
 
 - conversion/translation of FlexBuild to a bleve query.
 
+- multiple doc type mappings and/or default mapping.-
+
 ------------------------------------------
 TODO...
 
 - expression - SEARCH().
-
-- multiple doc type mappings.
 
 - issue: consider this expression - does it produce false negatives?
   - ((ISNUMBER(a) AND a > 100) OR (ISSTRING(a) AND a = "hi"))
@@ -110,7 +110,17 @@ TODO...
   - this might not work as CAST is type conversion
     instead of type validation & filtering.
 
-- GROUP BY / aggregate pushdown.
+- ORDER BY
+
+- OFFSET & LIMIT pagination
+
+- GROUP BY / HAVING and aggregate pushdown.
+
+- fields that have a different name than their property are currently
+  skipped
+
+- fields that are referenced across multiple type mappings are
+  currently skipped
 
 - implementation to learn field-types in a conjunct is inefficient,
   and keeps on reexamining the previous exprOut entry?

@@ -394,6 +394,12 @@ func (i *FTSIndexer) refreshConfigs() (
 	}
 
 	imap, err := i.convertIndexDefs(indexDefs)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	imap, err = i.addFlexIndexes(imap)
+
 	return imap, nodeDefs, err
 }
 

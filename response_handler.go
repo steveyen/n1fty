@@ -277,6 +277,11 @@ func (r *responseHandler) sendEntry(hit *search.DocumentMatch,
 		rv["explanation"] = *hit.Expl
 	}
 
+	if util.Debug >= 2 {
+		hitj, _ := json.Marshal(hit)
+		fmt.Printf("   n1fty: sendEntry, hit: %s\n", hitj)
+	}
+
 	if !sender.SendEntry(&datastore.IndexEntry{PrimaryKey: hit.ID,
 		MetaData: value.NewValue(rv)}) {
 		return false
