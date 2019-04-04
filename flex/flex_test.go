@@ -304,6 +304,46 @@ func TestFlexSargable(t *testing.T) {
 			expectExact: true,
 		},
 
+		{about: `unary function name UPPER`,
+			where:         `UPPER(a) = "hello"`,
+			indexedFields: indexedFieldsAB,
+			supportedExprs: []SupportedExpr{
+				&SupportedExprCmpFieldConstant{
+					FieldPath:              []string{"a"},
+					ValueType:              "string",
+					FieldUnaryFunctionName: "upper",
+				},
+			},
+			expectExact: true,
+			expectFieldTracks: FieldTracks{
+				FieldTrack("a"): 1,
+			},
+			expectFlexBuild: &FlexBuild{
+				Kind: "cmpFieldConstant",
+				Data: []string{"eq", "a", "string", `"hello"`},
+			},
+		},
+
+		{about: `unary function name LOWER`,
+			where:         `LOWER(a) = "hello"`,
+			indexedFields: indexedFieldsAB,
+			supportedExprs: []SupportedExpr{
+				&SupportedExprCmpFieldConstant{
+					FieldPath:              []string{"a"},
+					ValueType:              "string",
+					FieldUnaryFunctionName: "lower",
+				},
+			},
+			expectExact: true,
+			expectFieldTracks: FieldTracks{
+				FieldTrack("a"): 1,
+			},
+			expectFlexBuild: &FlexBuild{
+				Kind: "cmpFieldConstant",
+				Data: []string{"eq", "a", "string", `"hello"`},
+			},
+		},
+
 		{about: `not sargable due to advanced reference to indexed field a`,
 			where:         `UPPER(a)`,
 			indexedFields: indexedFieldsAB,

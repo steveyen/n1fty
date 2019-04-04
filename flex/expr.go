@@ -76,6 +76,10 @@ type SupportedExprCmpFieldConstant struct {
 	// the expr (e.g., ISSTRING(a), ISNUMBER(a)).
 	FieldTypeCheck bool
 
+	// When non-"", the field must be wrapped by the named unary
+	// function (e.g., LOWER(a)).
+	FieldUnaryFunctionName string
+
 	// Advanced control of output effect on FieldTracks / FlexBuild.
 	// Ex: "" (default output), "not-sargable", "FlexBuild:n".
 	Effect string
@@ -106,6 +110,15 @@ func (s *SupportedExprCmpFieldConstant) Supports(fi *FlexIndex, ids Identifiers,
 func (s *SupportedExprCmpFieldConstant) SupportsXY(fi *FlexIndex, ids Identifiers,
 	fName string, exprX, exprY expression.Expression, exprFTs FieldTypes) (
 	bool, FieldTracks, bool, *FlexBuild, error) {
+	if s.FieldUnaryFunctionName != "" {
+		uf, ok := exprX.(expression.UnaryFunction)
+		if !ok || uf.Name() != s.FieldUnaryFunctionName {
+			return false, nil, false, nil, nil
+		}
+
+		exprX = uf.Operand()
+	}
+
 	suffix, ok := ExpressionFieldPathSuffix(ids, exprX, s.FieldPath, nil)
 	if !ok {
 		return false, nil, false, nil, nil
