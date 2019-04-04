@@ -12,6 +12,7 @@ package flex
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -22,16 +23,43 @@ import (
 
 var TypeFieldPath = []string{"type"}
 
+// A mapping of N1QL unary function name to analyzer config.
+var FlexAnalyzers = map[string]interface{}{
+	"": map[string]interface{}{
+		"type":      "custom",
+		"tokenizer": "single",
+	},
+	"lower": map[string]interface{}{ // Handles: LOWER(city) = "fremont".
+		"type":          "custom",
+		"tokenizer":     "single",
+		"token_filters": []interface{}{"to_lower"},
+	},
+}
+
 // BleveToCondFlexIndexes translates a bleve index into CondFlexIndexes.
 // NOTE: checking for DocConfig.Mode should be done beforehand.
 func BleveToCondFlexIndexes(im *mapping.IndexMappingImpl) (
 	rv CondFlexIndexes, err error) {
+	// Keyed by analyzer name, value is unary function name.
+	flexAnalyzers := map[string]string{"keyword": ""}
+	if im.CustomAnalysis != nil {
+		for analyzer, config := range im.CustomAnalysis.Analyzers {
+			for unaryFunctionName, configCompare := range FlexAnalyzers {
+				if reflect.DeepEqual(config, configCompare) {
+					flexAnalyzers[analyzer] = unaryFunctionName
+				}
+			}
+		}
+	}
+
 	// Map of FieldTrack => fieldType => count.
 	fieldTrackTypes := map[FieldTrack]map[string]int{}
 	for _, dm := range im.TypeMapping {
-		countFieldTrackTypes(nil, dm, im.DefaultAnalyzer, fieldTrackTypes)
+		countFieldTrackTypes(nil, dm, im.DefaultAnalyzer,
+			fieldTrackTypes, flexAnalyzers)
 	}
-	countFieldTrackTypes(nil, im.DefaultMapping, im.DefaultAnalyzer, fieldTrackTypes)
+	countFieldTrackTypes(nil, im.DefaultMapping, im.DefaultAnalyzer,
+		fieldTrackTypes, flexAnalyzers)
 
 	types := make([]string, 0, len(im.TypeMapping))
 	for t := range im.TypeMapping {
@@ -68,7 +96,8 @@ func BleveToCondFlexIndexes(im *mapping.IndexMappingImpl) (
 					Effect:    "not-sargable",
 				},
 			},
-		}, im, nil, im.TypeMapping[t], im.DefaultAnalyzer, fieldTrackTypes)
+		}, im, nil, im.TypeMapping[t], im.DefaultAnalyzer,
+			fieldTrackTypes, flexAnalyzers)
 		if err != nil {
 			return nil, err
 		}
@@ -85,7 +114,8 @@ func BleveToCondFlexIndexes(im *mapping.IndexMappingImpl) (
 				&FieldInfo{FieldPath: TypeFieldPath, FieldType: "string"},
 			},
 			// TODO: Double check that dynamic mappings are handled right?
-		}, im, nil, im.DefaultMapping, im.DefaultAnalyzer, fieldTrackTypes)
+		}, im, nil, im.DefaultMapping, im.DefaultAnalyzer,
+			fieldTrackTypes, flexAnalyzers)
 		if err != nil {
 			return nil, err
 		}
@@ -103,7 +133,8 @@ func BleveToCondFlexIndexes(im *mapping.IndexMappingImpl) (
 
 // Populates into mm the counts of field types.
 func countFieldTrackTypes(path []string, dm *mapping.DocumentMapping,
-	defaultAnalyzer string, mm map[FieldTrack]map[string]int) {
+	defaultAnalyzer string, mm map[FieldTrack]map[string]int,
+	flexAnalyzers map[string]string) {
 	if dm == nil || !dm.Enabled {
 		return
 	}
@@ -125,8 +156,11 @@ func countFieldTrackTypes(path []string, dm *mapping.DocumentMapping,
 				analyzer = f.Analyzer
 			}
 
-			if f.Type == "text" && analyzer != "keyword" {
-				continue
+			if f.Type == "text" {
+				_, ok = flexAnalyzers[analyzer]
+				if !ok {
+					continue
+				}
 			}
 
 			fieldTrack := FieldTrack(strings.Join(path, "."))
@@ -142,7 +176,8 @@ func countFieldTrackTypes(path []string, dm *mapping.DocumentMapping,
 	}
 
 	for propName, propDM := range dm.Properties {
-		countFieldTrackTypes(append(path, propName), propDM, defaultAnalyzer, mm)
+		countFieldTrackTypes(append(path, propName),
+			propDM, defaultAnalyzer, mm, flexAnalyzers)
 	}
 }
 
@@ -155,7 +190,8 @@ var BleveTypeConv = map[string]string{"text": "string", "number": "number"}
 // recursion proceeds.
 func BleveToFlexIndex(fi *FlexIndex, im *mapping.IndexMappingImpl,
 	path []string, dm *mapping.DocumentMapping, defaultAnalyzer string,
-	fieldTrackTypes map[FieldTrack]map[string]int) (rv *FlexIndex, err error) {
+	fieldTrackTypes map[FieldTrack]map[string]int,
+	flexAnalyzers map[string]string) (rv *FlexIndex, err error) {
 	if dm == nil || !dm.Enabled {
 		return fi, nil
 	}
@@ -179,9 +215,12 @@ func BleveToFlexIndex(fi *FlexIndex, im *mapping.IndexMappingImpl,
 			analyzer = f.Analyzer
 		}
 
-		// For now, only keyword text fields are supported.
-		if f.Type == "text" && analyzer != "keyword" {
-			continue
+		unaryFunctionName := ""
+		if f.Type == "text" {
+			unaryFunctionName, ok = flexAnalyzers[analyzer]
+			if !ok {
+				continue
+			}
 		}
 
 		// Fields that are indexed using different types are not supported.
@@ -197,16 +236,18 @@ func BleveToFlexIndex(fi *FlexIndex, im *mapping.IndexMappingImpl,
 		})
 
 		fi.SupportedExprs = append(fi.SupportedExprs, &SupportedExprCmpFieldConstant{
-			Cmp:       "eq",
-			FieldPath: fieldPath,
-			ValueType: fieldType,
+			Cmp:                    "eq",
+			FieldPath:              fieldPath,
+			ValueType:              fieldType,
+			FieldUnaryFunctionName: unaryFunctionName,
 		})
 
 		fi.SupportedExprs = append(fi.SupportedExprs, &SupportedExprCmpFieldConstant{
-			Cmp:            "lt gt le ge",
-			FieldPath:      fieldPath,
-			ValueType:      fieldType,
-			FieldTypeCheck: true,
+			Cmp:                    "lt gt le ge",
+			FieldPath:              fieldPath,
+			ValueType:              fieldType,
+			FieldTypeCheck:         true,
+			FieldUnaryFunctionName: unaryFunctionName,
 		})
 
 		// TODO: Currently supports only keyword fields.
@@ -228,7 +269,8 @@ func BleveToFlexIndex(fi *FlexIndex, im *mapping.IndexMappingImpl,
 
 	for _, n := range ns {
 		fi, err = BleveToFlexIndex(fi, im,
-			append(path, n), dm.Properties[n], defaultAnalyzer, fieldTrackTypes)
+			append(path, n), dm.Properties[n], defaultAnalyzer,
+			fieldTrackTypes, flexAnalyzers)
 		if err != nil {
 			return nil, err
 		}
